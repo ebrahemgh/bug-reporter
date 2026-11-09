@@ -146,7 +146,7 @@ button:focus-visible,.drop:focus-visible{outline:3px solid var(--accent);outline
       </div>
       <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
       <div class="thumbs" id="thumbs"></div>
-      <div class="tapnote" id="tapNote" hidden>Tap a screenshot to circle or point at the problem.</div>
+      <div class="tapnote" id="tapNote" hidden>Tap a screenshot to circle the problem. If the error is clear on screen, you can skip the voice note.</div>
       <div class="size" id="sizeNote" hidden></div>
     </div>
 
@@ -428,10 +428,24 @@ document.addEventListener('paste', e => { if (!$('compose').hidden && e.clipboar
 
 function updateWrite() {
   const total = state.files.reduce((a, x) => a + x.file.size, 0);
-  $('writeBtn').disabled = !(state.audio || $('typed').value.trim()) || total > MAX_BYTES;
+  const hasImg = state.files.some(x => x.file.type.startsWith('image/'));
+  $('writeBtn').disabled = !(state.audio || $('typed').value.trim() || hasImg) || total > MAX_BYTES;
 }
 
 /* ---------- draft ---------- */
+function shrink(file, max = 1400) {           // resize a screenshot for the AI (keeps upload fast)
+  return new Promise(res => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u); c.toBlob(b => res(b), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(u); res(null); };
+    img.src = u;
+  });
+}
 async function post(path, fd) {
   let r;
   try { r = await fetch(API + '/' + path, { method: 'POST', body: fd }); }
@@ -446,10 +460,13 @@ $('writeBtn').onclick = async () => {
   fd.append('code', store.get('code')); fd.append('platform', state.platform); fd.append('environment', state.environment);
   fd.append('text', $('typed').value.trim()); fd.append('attachmentCount', state.files.length);
   if (state.audio) fd.append('audio', state.audio.blob, 'voice-note.' + state.audio.ext);
-  $('loadingText').textContent = state.audio ? 'Listening to your note and writing the bug…' : 'Writing the bug…';
+  const imgs = state.files.filter(x => x.file.type.startsWith('image/')).slice(0, 3);
+  $('loadingText').textContent = state.audio ? 'Listening to your note and writing the bug…' : imgs.length ? 'Reading your screenshot and writing the bug…' : 'Writing the bug…';
   show('loading');
+  for (let i = 0; i < imgs.length; i++) { const s = await shrink(imgs[i].file); if (s) fd.append('image' + i, s, 'shot' + i + '.jpg'); }
   try {
     const j = await post('draft', fd);
+    if (j.draft && j.draft.unclear) { show('compose'); return err('composeErr', (j.draft.question || 'I can’t tell what’s wrong from the screenshot.') + ' Add a short voice note or type it.'); }
     state.draft = j.draft || {};
     fillReview(j);
     show('review');
