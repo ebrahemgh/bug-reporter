@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11202a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bug Reporter">
+<title>SalesPoint Bug Reporter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one narrow column — context chips, the record button as the centrepiece, attachments, one action at the bottom. */
+:root{
+  --bg:#f3f5f6; --card:#ffffff; --ink:#11202a; --muted:#5d6b73; --line:#dbe1e4;
+  --accent:#0f6e72; --accent-ink:#ffffff; --rec:#d7372b; --rec-soft:#fbe4e1; --ok:#2d7a3e; --warn:#a85d00; --warn-soft:#fdf0dd;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0c1519; --card:#14222a; --ink:#e4ecef; --muted:#93a4ac; --line:#26363e;
+  --accent:#4fbdc1; --accent-ink:#06191b; --rec:#f0584b; --rec-soft:#3a1714; --ok:#7fcf8f; --warn:#f2b45c; --warn-soft:#3a2810; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) max(16px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;justify-content:space-between;align-items:center;padding-top:14px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.01em}
+.brand small{display:block;font-weight:500;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.iconbtn{background:none;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:7px 14px;font:inherit;font-size:15px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.ctx{display:grid;gap:14px}
+.recwrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:22px 16px}
+.rec{width:132px;height:132px;border-radius:50%;border:0;background:var(--rec);color:#fff;cursor:pointer;display:grid;place-items:center;
+  box-shadow:0 0 0 0 var(--rec-soft);transition:transform .15s ease;touch-action:manipulation}
+.rec svg{width:46px;height:46px}
+.rec:active{transform:scale(.96)}
+.rec.on{animation:pulse 1.4s ease-out infinite}
+.rec.on .mic{display:none}.rec:not(.on) .stop{display:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 var(--rec-soft)}100%{box-shadow:0 0 0 26px transparent}}
+@media (prefers-reduced-motion:reduce){.rec.on{animation:none;box-shadow:0 0 0 8px var(--rec-soft)}}
+.timer{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.hint{color:var(--muted);font-size:14px;text-align:center;margin:0}
+.voice{display:flex;align-items:center;gap:10px;width:100%}
+.voice audio{flex:1;min-width:0;height:40px}
+.link{background:none;border:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;padding:6px 2px}
+textarea,input,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+textarea{resize:vertical;min-height:84px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:18px;text-align:center;cursor:pointer;color:var(--muted)}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--ink)}
+.drop b{color:var(--ink)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px;margin-top:12px}
+.thumb{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg);display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center;padding:4px}
+.thumb img,.thumb video{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+.thumb button{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:15px;line-height:1;cursor:pointer;z-index:1}
+.size{font-size:13px;color:var(--muted);margin-top:8px}
+.primary{width:100%;border:0;border-radius:14px;padding:16px;font:inherit;font-size:17px;font-weight:600;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.primary[disabled]{opacity:.45;cursor:not-allowed}
+.secondary{width:100%;border:1px solid var(--line);border-radius:14px;padding:14px;font:inherit;font-weight:600;background:transparent;color:var(--ink);cursor:pointer}
+.err{background:var(--rec-soft);color:var(--rec);border-radius:10px;padding:10px 12px;font-size:15px}
+.field{display:grid;gap:6px}
+.field label{font-size:13px;font-weight:600;color:var(--muted)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dupes{background:var(--warn-soft);border-radius:12px;padding:12px 14px;font-size:14px}
+.dupes b{color:var(--warn)}
+.dupes ul{margin:6px 0 0;padding-left:18px}
+.dupes a{color:var(--ink)}
+.heard{font-size:14px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px}
+.loading{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 16px;text-align:center}
+.spinner{width:36px;height:36px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--accent);animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.done{text-align:center;display:grid;gap:12px;padding:28px 16px}
+.done .num{font-family:var(--mono);font-size:30px}
+.done a{color:var(--accent);font-weight:600;word-break:break-word}
+.stack{display:grid;gap:12px}
+button:focus-visible,.drop:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><small>SalesPoint QA</small>Bug Reporter</div>
+    <button class="iconbtn" id="settingsBtn" type="button">Settings</button>
+  </header>
+
+  <!-- Setup -->
+  <section id="setup" class="card stack" hidden>
+    <p class="label">First-time setup</p>
+    <div class="field"><label for="sName">Your name</label><input id="sName" autocomplete="name" placeholder="e.g. Ibrahim"></div>
+    <div class="field"><label for="sCode">Team access code</label><input id="sCode" autocomplete="off" placeholder="Ask Ibrahim for the code"></div>
+    <div id="setupErr" class="err" hidden></div>
+    <button class="primary" id="saveSetup" type="button">Save</button>
+  </section>
+
+  <!-- Compose -->
+  <section id="compose" class="stack" hidden>
+    <div class="card ctx">
+      <div><p class="label">Platform</p><div class="chips" data-group="platform"></div></div>
+      <div><p class="label">Environment</p><div class="chips" data-group="environment"></div></div>
+    </div>
+
+    <div class="card recwrap">
+      <button class="rec" id="recBtn" type="button" aria-label="Start recording">
+        <svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <svg class="stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+      </button>
+      <div class="timer" id="timer">0:00</div>
+      <p class="hint" id="recHint">Tap and describe the bug in Arabic or English.<br>Tap again to stop.</p>
+      <div class="voice" id="voiceRow" hidden>
+        <audio id="player" controls></audio>
+        <button class="link" id="dropVoice" type="button">Delete</button>
+      </div>
+      <button class="link" id="typeToggle" type="button">Or type it instead</button>
+      <textarea id="typed" placeholder="What happened? What did you expect?" hidden></textarea>
+    </div>
+
+    <div class="card">
+      <p class="label">Screenshots &amp; videos</p>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Add screenshots or videos">
+        <b>Tap to add</b> or drop files here
+        <div style="font-size:13px;margin-top:4px">You can also paste a screenshot</div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="size" id="sizeNote" hidden></div>
+    </div>
+
+    <div id="composeErr" class="err" hidden></div>
+    <button class="primary" id="writeBtn" type="button" disabled>Write the bug</button>
+  </section>
+
+  <!-- Loading -->
+  <section id="loading" class="card loading" hidden>
+    <div class="spinner" aria-hidden="true"></div>
+    <div id="loadingText">Listening to your note and writing the bug…</div>
+  </section>
+
+  <!-- Review -->
+  <section id="review" class="stack" hidden>
+    <div class="card stack">
+      <p class="label">Check the bug, then create it</p>
+      <div class="field"><label for="dTitle">Title</label><textarea id="dTitle" rows="2" style="min-height:64px"></textarea></div>
+      <div class="field"><label for="dActual">Actual behavior</label><textarea id="dActual"></textarea></div>
+      <div class="field"><label for="dExpected">Expected behavior</label><textarea id="dExpected"></textarea></div>
+      <div class="field"><label for="dSteps">Steps (one per line, optional)</label><textarea id="dSteps" style="min-height:64px"></textarea></div>
+      <div class="row2">
+        <div class="field"><label for="dPriority">Priority</label><select id="dPriority"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+        <div class="field"><label for="dSeverity">Severity</label><select id="dSeverity"><option>1 - Critical</option><option>2 - High</option><option>3 - Medium</option><option>4 - Low</option></select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="dEnv">Environment</label><input id="dEnv"></div>
+        <div class="field"><label for="dTags">Tags</label><input id="dTags"></div>
+      </div>
+      <div class="heard" id="heard" hidden></div>
+      <div class="size" id="attachNote"></div>
+    </div>
+    <div class="dupes" id="dupes" hidden></div>
+    <div id="reviewErr" class="err" hidden></div>
+    <button class="primary" id="createBtn" type="button">Create bug</button>
+    <button class="secondary" id="backBtn" type="button">Back</button>
+  </section>
+
+  <!-- Done -->
+  <section id="done" class="card done" hidden>
+    <div class="label" style="margin:0">Bug created</div>
+    <div class="num" id="doneNum"></div>
+    <div id="doneTitle"></div>
+    <a id="doneLink" target="_blank" rel="noopener">Open in Azure DevOps</a>
+    <button class="primary" id="againBtn" type="button">Report another bug</button>
+  </section>
+</main>
+
+<script>
+const API = 'https://n8n.leading-point.org/webhook/salespoint-bug';
+const MAX_BYTES = 15 * 1024 * 1024;
+const GROUPS = { platform: ['Android', 'iOS', 'Web backend', 'STC Portal'], environment: ['Core', 'QA', 'UAT', 'Production'] };
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d = '') { try { return localStorage.getItem('br.' + k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('br.' + k, v); } catch {} }
+};
+const state = { platform: store.get('platform', 'Android'), environment: store.get('environment', 'Core'), audio: null, files: [], draft: null };
+
+function show(id) { ['setup', 'compose', 'loading', 'review', 'done'].forEach(s => $(s).hidden = s !== id); window.scrollTo(0, 0); }
+function err(id, msg) { $(id).textContent = msg || ''; $(id).hidden = !msg; }
+function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+
+/* ---------- setup ---------- */
+function openSetup() { $('sName').value = store.get('name'); $('sCode').value = store.get('code'); err('setupErr'); show('setup'); }
+$('settingsBtn').onclick = openSetup;
+$('saveSetup').onclick = () => {
+  const n = $('sName').value.trim(), c = $('sCode').value.trim();
+  if (!n || !c) return err('setupErr', 'Enter your name and the team access code.');
+  store.set('name', n); store.set('code', c); show('compose'); updateWrite();
+};
+
+/* ---------- chips ---------- */
+document.querySelectorAll('[data-group]').forEach(box => {
+  const g = box.dataset.group;
+  box.innerHTML = GROUPS[g].map(v => `<button type="button" class="chip" data-v="${v}" aria-pressed="${state[g] === v}">${v}</button>`).join('');
+  box.addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    state[g] = b.dataset.v; store.set(g, state[g]);
+    box.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === b));
+  });
+});
+
+/* ---------- recording ---------- */
+let rec = null, chunks = [], t0 = 0, tick = null;
+function pickMime() {
+  const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  return opts.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+}
+$('recBtn').onclick = async () => {
+  err('composeErr');
+  if (rec && rec.state === 'recording') { rec.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    return err('composeErr', 'This browser can’t record audio. Type the bug instead.');
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = pickMime();
+    rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(tick);
+      $('recBtn').classList.remove('on'); $('recBtn').setAttribute('aria-label', 'Start recording');
+      const type = (rec.mimeType || mime || 'audio/webm').split(';')[0];
+      const blob = new Blob(chunks, { type });
+      if (blob.size < 2000) { $('recHint').hidden = false; return err('composeErr', 'That recording was too short. Try again.'); }
+      state.audio = { blob, ext: type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm' };
+      $('player').src = URL.createObjectURL(blob);
+      $('voiceRow').hidden = false; $('recHint').hidden = true;
+      updateWrite();
+    };
+    rec.start();
+    t0 = Date.now();
+    $('timer').textContent = '0:00';
+    tick = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      $('timer').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+      if (s >= 300) rec.stop();
+    }, 250);
+    $('recBtn').classList.add('on'); $('recBtn').setAttribute('aria-label', 'Stop recording');
+  } catch (e) {
+    err('composeErr', 'Microphone blocked. Allow microphone access for this page in your browser settings, or type the bug instead.');
+  }
+};
+$('dropVoice').onclick = () => {
+  state.audio = null; $('player').removeAttribute('src'); $('voiceRow').hidden = true; $('recHint').hidden = false; $('timer').textContent = '0:00'; updateWrite();
+};
+$('typeToggle').onclick = () => { $('typed').hidden = !$('typed').hidden; if (!$('typed').hidden) $('typed').focus(); };
+$('typed').addEventListener('input', updateWrite);
+
+/* ---------- attachments ---------- */
+function addFiles(list) {
+  for (const f of list) {
+    if (!/^(image|video)\//.test(f.type)) continue;
+    state.files.push({ file: f, url: URL.createObjectURL(f) });
+  }
+  renderThumbs(); updateWrite();
+}
+function renderThumbs() {
+  $('thumbs').innerHTML = state.files.map((x, i) => `<div class="thumb">
+      ${x.file.type.startsWith('image/') ? `<img src="${x.url}" alt="">` : `<video src="${x.url}" muted playsinline></video>`}
+      <button type="button" data-rm="${i}" aria-label="Remove ${x.file.name}">×</button></div>`).join('');
+  const total = state.files.reduce((a, x) => a + x.file.size, 0);
+  $('sizeNote').hidden = !state.files.length;
+  $('sizeNote').textContent = `${state.files.length} file${state.files.length > 1 ? 's' : ''} · ${fmtSize(total)}` + (total > MAX_BYTES ? ' · too large, keep it under 15 MB (trim the video)' : '');
+  $('sizeNote').style.color = total > MAX_BYTES ? 'var(--rec)' : '';
+}
+$('thumbs').onclick = e => { const b = e.target.closest('[data-rm]'); if (!b) return; state.files.splice(+b.dataset.rm, 1); renderThumbs(); updateWrite(); };
+$('drop').onclick = () => $('fileInput').click();
+$('drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('fileInput').click(); } };
+$('fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
+document.addEventListener('paste', e => { if (!$('compose').hidden && e.clipboardData?.files?.length) addFiles(e.clipboardData.files); });
+
+function updateWrite() {
+  const total = state.files.reduce((a, x) => a + x.file.size, 0);
+  $('writeBtn').disabled = !(state.audio || $('typed').value.trim()) || total > MAX_BYTES;
+}
+
+/* ---------- draft ---------- */
+async function post(path, fd) {
+  let r;
+  try { r = await fetch(API + '/' + path, { method: 'POST', body: fd }); }
+  catch { throw new Error('Can’t reach the server. Check your internet connection and try again.'); }
+  let j = {}; try { j = await r.json(); } catch {}
+  if (!r.ok || j.error) throw new Error(j.error === 'Wrong access code' ? 'Wrong access code. Tap Settings and check it.' : (j.error || 'Something went wrong on the server. Try again in a minute.'));
+  return j;
+}
+$('writeBtn').onclick = async () => {
+  err('composeErr');
+  const fd = new FormData();
+  fd.append('code', store.get('code')); fd.append('platform', state.platform); fd.append('environment', state.environment);
+  fd.append('text', $('typed').value.trim()); fd.append('attachmentCount', state.files.length);
+  if (state.audio) fd.append('audio', state.audio.blob, 'voice-note.' + state.audio.ext);
+  $('loadingText').textContent = state.audio ? 'Listening to your note and writing the bug…' : 'Writing the bug…';
+  show('loading');
+  try {
+    const j = await post('draft', fd);
+    state.draft = j.draft || {};
+    fillReview(j);
+    show('review');
+  } catch (e) { show('compose'); err('composeErr', e.message); }
+};
+function fillReview(j) {
+  const d = state.draft;
+  $('dTitle').value = d.title || ''; $('dActual').value = d.actual || ''; $('dExpected').value = d.expected || '';
+  $('dSteps').value = (d.steps || []).join('\n'); $('dPriority').value = String(d.priority || 2); $('dSeverity').value = d.severity || '3 - Medium';
+  $('dEnv').value = d.environment || state.environment; $('dTags').value = (d.tags || []).join(', ');
+  $('heard').hidden = !j.transcript; $('heard').textContent = j.transcript ? 'Heard: ' + j.transcript : '';
+  $('attachNote').textContent = state.files.length ? `${state.files.length} attachment${state.files.length > 1 ? 's' : ''} will be added.` : 'No attachments.';
+  const sim = j.similar || [];
+  $('dupes').hidden = !sim.length;
+  $('dupes').innerHTML = sim.length ? `<b>Possible duplicates</b> — check before creating:<ul>${sim.map(s =>
+    `<li><a target="_blank" rel="noopener" href="https://dev.azure.com/LP-BusinessApplications/SalesPoint/_workitems/edit/${s.id}">Bug ${s.id}</a>: ${String(s.title || '').replace(/</g, '&lt;')} (${s.state || ''})</li>`).join('')}</ul>` : '';
+  err('reviewErr');
+}
+$('backBtn').onclick = () => show('compose');
+
+/* ---------- create ---------- */
+$('createBtn').onclick = async () => {
+  if (!$('dTitle').value.trim()) return err('reviewErr', 'Give the bug a title.');
+  const fd = new FormData();
+  fd.append('code', store.get('code')); fd.append('reporter', store.get('name'));
+  fd.append('title', $('dTitle').value.trim()); fd.append('actual', $('dActual').value.trim()); fd.append('expected', $('dExpected').value.trim());
+  fd.append('steps', $('dSteps').value); fd.append('priority', $('dPriority').value); fd.append('severity', $('dSeverity').value);
+  fd.append('environment', $('dEnv').value.trim()); fd.append('tags', $('dTags').value);
+  state.files.forEach((x, i) => fd.append('file' + i, x.file, x.file.name || ('attachment-' + (i + 1))));
+  $('loadingText').textContent = state.files.length ? 'Creating the bug and uploading attachments…' : 'Creating the bug…';
+  show('loading');
+  try {
+    const j = await post('create', fd);
+    $('doneNum').textContent = 'Bug ' + j.id; $('doneTitle').textContent = j.title || ''; $('doneLink').href = j.url;
+    show('done');
+  } catch (e) { show('review'); err('reviewErr', e.message); }
+};
+$('againBtn').onclick = () => {
+  $('dropVoice').click(); state.files.forEach(x => URL.revokeObjectURL(x.url)); state.files = []; renderThumbs();
+  $('typed').value = ''; $('typed').hidden = true; state.draft = null; updateWrite(); show('compose');
+};
+
+/* ---------- start ---------- */
+if (store.get('name') && store.get('code')) { show('compose'); } else { openSetup(); }
+updateWrite();
+</script>
+</body>
+</html>
