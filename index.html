@@ -81,6 +81,8 @@ textarea{resize:vertical;min-height:84px}
 .thumb.img{cursor:pointer}
 .badge{position:absolute;left:4px;bottom:4px;z-index:1;background:var(--rec);color:#fff;font-size:11px;font-weight:600;border-radius:6px;padding:1px 6px}
 .tapnote{font-size:13px;color:var(--muted);margin-top:6px}
+.badge.ok{background:var(--accent);color:var(--accent-ink)}
+.compress{margin-top:8px;font-size:14px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
 /* Markup editor */
 #editor{position:fixed;inset:0;z-index:50;background:#0b0f12;display:flex;flex-direction:column;color:#fff;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -148,6 +150,7 @@ button:focus-visible,.drop:focus-visible{outline:3px solid var(--accent);outline
       <div class="thumbs" id="thumbs"></div>
       <div class="tapnote" id="tapNote" hidden>Tap a screenshot to circle the problem. If the error is clear on screen, you can skip the voice note.</div>
       <div class="size" id="sizeNote" hidden></div>
+      <div class="compress" id="compressNote" hidden></div>
     </div>
 
     <div id="composeErr" class="err" hidden></div>
@@ -301,26 +304,147 @@ $('typeToggle').onclick = () => { $('typed').hidden = !$('typed').hidden; if (!$
 $('typed').addEventListener('input', updateWrite);
 
 /* ---------- attachments ---------- */
-function addFiles(list) {
-  for (const f of list) {
-    if (!/^(image|video)\//.test(f.type)) continue;
-    state.files.push({ file: f, url: URL.createObjectURL(f), orig: f, shapes: [] });
+const MB = 1024 * 1024;
+const totalSize = () => state.files.reduce((a, x) => a + x.file.size, 0);
+function setStatus(msg) { $('compressNote').textContent = msg || ''; $('compressNote').hidden = !msg; }
+
+async function addFiles(list) {
+  const incoming = [...list].filter(f => /^(image|video)\//.test(f.type));
+  if (!incoming.length) return;
+  err('composeErr');
+  state.busy = (state.busy || 0) + 1; updateWrite();
+  try {
+    for (const f0 of incoming) {
+      let f = f0;
+      if (f.type.startsWith('image/') && f.type !== 'image/gif' && f.size > 1.5 * MB) {
+        setStatus('Making ' + shortName(f.name) + ' smaller…');
+        f = (await compressImage(f)) || f;
+      }
+      state.files.push({ file: f, url: URL.createObjectURL(f), orig: f, shapes: [], before: f !== f0 ? f0.size : 0 });
+      renderThumbs();
+    }
+    await fitToLimit();
+  } finally {
+    state.busy--; setStatus(''); renderThumbs(); updateWrite();
   }
-  renderThumbs(); updateWrite();
 }
+function shortName(n) { n = n || 'file'; return n.length > 22 ? n.slice(0, 10) + '…' + n.slice(-9) : n; }
+
+/* Big screenshots: resize to 2000 px and save as JPEG */
+function compressImage(file) {
+  return new Promise(res => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u);
+      c.toBlob(b => res(b && b.size < file.size ? new File([b], (file.name || 'screenshot').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : null), 'image/jpeg', 0.88);
+    };
+    img.onerror = () => { URL.revokeObjectURL(u); res(null); };   // e.g. HEIC: keep the original
+    img.src = u;
+  });
+}
+
+/* If everything together is over 15 MB, re-encode the biggest videos to fit */
+async function fitToLimit() {
+  if (totalSize() <= MAX_BYTES) return;
+  const vids = state.files.filter(x => x.file.type.startsWith('video/') && !x.squeezed).sort((a, b) => b.file.size - a.file.size);
+  for (const x of vids) {
+    if (totalSize() <= MAX_BYTES) break;
+    if (!state.files.includes(x)) continue;
+    const budget = MAX_BYTES - (totalSize() - x.file.size) - 300 * 1024;
+    if (budget < 1 * MB) break;
+    x.squeezed = true;
+    try {
+      const before = x.file.size;
+      const out = await compressVideo(x.file, budget, p => setStatus(`Compressing ${shortName(x.file.name)}… ${Math.round(p * 100)}% · keep this screen open`));
+      if (!state.files.includes(x)) continue;                 // removed while compressing
+      URL.revokeObjectURL(x.url); x.file = out; x.orig = out; x.url = URL.createObjectURL(out); x.before = before;
+      renderThumbs();
+    } catch (e) {
+      err('composeErr', e.message || 'Couldn’t compress the video. Trim it on your phone and add it again.');
+    }
+  }
+}
+
+/* Re-encode a video on the phone: play it into a smaller canvas and record at a lower bitrate */
+async function compressVideo(file, targetBytes, onProgress) {
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) throw new Error('This browser can’t compress videos. Trim the video on your phone and add it again.');
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.src = url; v.playsInline = true; v.preload = 'auto';
+  try {
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('This video can’t be read in the browser. Trim it on your phone and add it again.')); });
+    let dur = v.duration;
+    if (!isFinite(dur) || dur <= 0) throw new Error('This video can’t be compressed. Trim it on your phone and add it again.');
+    const audioBps = 64000;
+    const videoBps = Math.min(2500000, Math.floor(targetBytes * 8 / dur * 0.8) - audioBps);
+    if (videoBps < 180000) throw new Error(`The video is too long to fit under 15 MB (${Math.round(dur)} s). Trim it to the important part and add it again.`);
+    const maxSide = videoBps > 1500000 ? 1280 : videoBps > 700000 ? 960 : 720;
+    const s = Math.min(1, maxSide / Math.max(v.videoWidth || maxSide, v.videoHeight || maxSide));
+    const c = document.createElement('canvas');
+    c.width = Math.max(2, Math.round((v.videoWidth || 720) * s / 2) * 2); c.height = Math.max(2, Math.round((v.videoHeight || 1280) * s / 2) * 2);
+    const g = c.getContext('2d');
+    const stream = c.captureStream(30);
+    let ac = null;
+    try {                                     // keep the sound, without playing it out loud
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ac.createMediaElementSource(v), dest = ac.createMediaStreamDestination();
+      src.connect(dest); dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+      await ac.resume();
+    } catch { ac = null; v.muted = true; }
+    const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: videoBps, audioBitsPerSecond: audioBps });
+    const chunks = []; rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const stopped = new Promise(r => rec.onstop = r);
+    let lock = null; try { lock = await navigator.wakeLock?.request('screen'); } catch {}
+    let done = false;
+    const drawFrame = () => {
+      if (done) return;
+      g.drawImage(v, 0, 0, c.width, c.height);
+      onProgress(Math.min(1, v.currentTime / dur));
+      v.requestVideoFrameCallback ? v.requestVideoFrameCallback(drawFrame) : requestAnimationFrame(drawFrame);
+    };
+    rec.start(1000);
+    try { await v.play(); } catch { v.muted = true; await v.play(); }
+    drawFrame();
+    await new Promise(res => {
+      v.onended = res;
+      setTimeout(res, (dur * 2 + 15) * 1000);   // safety stop
+    });
+    done = true; rec.stop(); await stopped;
+    try { lock?.release(); } catch {} try { ac?.close(); } catch {}
+    const type = (rec.mimeType || mime || 'video/webm').split(';')[0];
+    const blob = new Blob(chunks, { type });
+    if (!blob.size) throw new Error('Video compression failed. Trim the video on your phone and add it again.');
+    if (blob.size > targetBytes) throw new Error('The video is still too large after compressing. Trim it to the important part and add it again.');
+    onProgress(1);
+    return new File([blob], (file.name || 'video').replace(/\.[^.]+$/, '') + '-small.' + (type.includes('mp4') ? 'mp4' : 'webm'), { type });
+  } finally {
+    v.pause(); v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url);
+  }
+}
+
 function renderThumbs() {
   $('thumbs').innerHTML = state.files.map((x, i) => {
     const isImg = x.file.type.startsWith('image/');
+    const badge = x.shapes.length ? '<span class="badge">✎ edited</span>'
+      : x.before ? `<span class="badge ok" title="Compressed from ${fmtSize(x.before)}">↓ ${fmtSize(x.file.size)}</span>` : '';
     return `<div class="thumb${isImg ? ' img' : ''}" ${isImg ? `data-edit="${i}" role="button" tabindex="0" aria-label="Mark up ${x.file.name}"` : ''}>
       ${isImg ? `<img src="${x.url}" alt="">` : `<video src="${x.url}" muted playsinline></video>`}
-      ${x.shapes.length ? '<span class="badge">✎ edited</span>' : ''}
+      ${badge}
       <button type="button" data-rm="${i}" aria-label="Remove ${x.file.name}">×</button></div>`;
   }).join('');
   $('tapNote').hidden = !state.files.some(x => x.file.type.startsWith('image/'));
-  const total = state.files.reduce((a, x) => a + x.file.size, 0);
+  const total = totalSize();
+  const saved = state.files.reduce((a, x) => a + (x.before ? x.before - x.file.size : 0), 0);
   $('sizeNote').hidden = !state.files.length;
-  $('sizeNote').textContent = `${state.files.length} file${state.files.length > 1 ? 's' : ''} · ${fmtSize(total)}` + (total > MAX_BYTES ? ' · too large, keep it under 15 MB (trim the video)' : '');
-  $('sizeNote').style.color = total > MAX_BYTES ? 'var(--rec)' : '';
+  $('sizeNote').textContent = `${state.files.length} file${state.files.length > 1 ? 's' : ''} · ${fmtSize(total)}`
+    + (saved > 0 ? ` (compressed, saved ${fmtSize(saved)})` : '')
+    + (total > MAX_BYTES && !state.busy ? ' · still over 15 MB: trim the video or remove a file' : '');
+  $('sizeNote').style.color = total > MAX_BYTES && !state.busy ? 'var(--rec)' : '';
 }
 $('thumbs').onclick = e => {
   const b = e.target.closest('[data-rm]');
@@ -429,7 +553,8 @@ document.addEventListener('paste', e => { if (!$('compose').hidden && e.clipboar
 function updateWrite() {
   const total = state.files.reduce((a, x) => a + x.file.size, 0);
   const hasImg = state.files.some(x => x.file.type.startsWith('image/'));
-  $('writeBtn').disabled = !(state.audio || $('typed').value.trim() || hasImg) || total > MAX_BYTES;
+  $('writeBtn').disabled = !(state.audio || $('typed').value.trim() || hasImg) || total > MAX_BYTES || !!state.busy;
+  $('writeBtn').textContent = state.busy ? 'Compressing attachments…' : 'Write the bug';
 }
 
 /* ---------- draft ---------- */
